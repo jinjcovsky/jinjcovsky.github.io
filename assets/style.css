@@ -6,6 +6,7 @@
     --accent-color: #a6b5ce;
     --accent-hover: #918bbf;
     --card-bg: #ffffff;
+    --muted-text: #64748b;
     --border-radius: 12px;
     --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
     --shadow-hover: 0 10px 15px -3px rgb(0 0 0 / 0.1);
@@ -18,6 +19,9 @@
         --text-color: #cbd5e1;
         --heading-color: #f8fafc;
         --card-bg: #1e293b;
+        --accent-color: #c3cde6;
+        --accent-hover: #dcd8f0;
+        --muted-text: #94a3b8;
         --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3);
         --shadow-hover: 0 10px 15px -3px rgb(0 0 0 / 0.4);
     }
@@ -33,6 +37,12 @@ body {
     margin: 0 auto;
     padding: 40px 20px;
     -webkit-font-smoothing: antialiased;
+}
+
+@media (max-width: 480px) {
+    body {
+        padding: 24px 16px;
+    }
 }
 
 h1, h2, h3 {
@@ -51,6 +61,12 @@ a {
 a:hover {
     color: var(--accent-hover);
     text-decoration: underline;
+}
+
+a:focus-visible {
+    outline: 2px solid var(--accent-hover);
+    outline-offset: 2px;
+    border-radius: 2px;
 }
 
 /* --- BUTTONS & LINKS --- */
@@ -115,18 +131,31 @@ a:hover {
 
 .post-date {
     display: block;
-    color: #64748b;
+    color: var(--muted-text);
     font-size: 0.875rem;
     margin-top: 6px;
 }
 
 /* Markdown Content Formatting */
-pre, code {
+code {
     background-color: var(--card-bg);
     border-radius: 6px;
     padding: 0.2em 0.4em;
     font-size: 0.9em;
 }
+ 
+pre {
+    background-color: var(--card-bg);
+    border-radius: 6px;
+    padding: 1em;
+    overflow-x: auto; /* prevents long code lines from breaking layout */
+}
+ 
+pre code {
+    padding: 0; /* avoid double padding when code sits inside pre */
+    background: none;
+}
+
 
 /* --- 1. GLOBALLY SCALE DOWN BLOG IMAGES (Firewalled) --- */
 img:not(.leaflet-container img) {
@@ -149,7 +178,7 @@ img:not(.leaflet-container img) {
     width: 25px !important;
     height: 41px !important;
     box-sizing: content-box !important;     /* Stops Firefox from adding phantom padding */
-    transform-origin: 0 0 !important;       /* THE MAGIC FIX: Forces Firefox to transform from top-left, stopping the drift */
+    transform-origin: 0 0 !important;       /*Forces Firefox to transform from top-left, stopping the drift */
 }
 
 .leaflet-marker-shadow {

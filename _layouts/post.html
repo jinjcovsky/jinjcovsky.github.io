@@ -1,35 +1,47 @@
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{{ page.title }} — {{ page.date | date: '%d.%m.%Y' }}">
     <title>{{ page.title }}</title>
     <link rel="stylesheet" href="/assets/style.css">
+    {% if page.lat and page.lon %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    {% endif %}
 </head>
 <body>
     <a href="/" class="back-link">← Zurück zur Übersicht</a>
-    
-    <h1>{{ page.title }}</h1>
+
+    <h1>{{ page.title | escape }}</h1>
     <p class="post-date">{{ page.date | date: "%d.%m.%Y" }}</p>
 
-    
     {% if page.lat and page.lon %}
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <div id="post-map" style="height: 300px; width: 100%; margin-bottom: 20px; border-radius: 8px;"></div>
-    
+
+    <div id="post-map" style="height: 300px; width: 100%; margin-bottom: 20px;"></div>
+
+    <noscript><p>Diese Karte benötigt JavaScript, um angezeigt zu werden.</p></noscript>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         const lat = {{ page.lat }};
         const lon = {{ page.lon }};
-        const postMap = L.map('post-map').setView([lat, lon], 14);
         
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(postMap);
-        
-        L.marker([lat, lon]).addTo(postMap)
-            .bindPopup("<b>{{ page.title | escape }}</b>")
-            .openPopup();
+        // page no longer errors out silently with a blank map div
+        const postMapEl = document.getElementById('post-map');
+        if (typeof L === 'undefined') {
+            postMapEl.innerHTML = '<p>Karte konnte nicht geladen werden.</p>';
+        } else {
+            const postMap = L.map('post-map').setView([lat, lon], 14);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(postMap);
+
+            L.marker([lat, lon]).addTo(postMap)
+                .bindPopup("<b>{{ page.title | escape }}</b>")
+                .openPopup();
+        }
     </script>
     {% endif %}
 
