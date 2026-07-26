@@ -1,6 +1,6 @@
 backend:
   name: github
-  repo: jinjcovsky/woistjan
+  repo: jinjcovsky/jinjcovsky.github.io
   branch: main
   base_url: https://woistjan-proxy.jkienast-at.workers.dev
 
