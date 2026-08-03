@@ -19,6 +19,5 @@ collections:
       - {label: "Title", name: "title", widget: "string"}
       - {label: "Publish Date", name: "date", widget: "datetime"}
       - {label: "Image", name: "image", widget: "image", required: false}
-      - {label: "Latitude", name: "lat", widget: "number", value_type: "float", required: false}
-      - {label: "Longitude", name: "lon", widget: "number", value_type: "float", required: false}
+      - {label: "Coordinates", name: "coords", widget: "string", hint: "Comma-separated coordinates, for example: 47.45677,11.90284", required: false}
       - {label: "Body", name: "body", widget: "markdown"}
