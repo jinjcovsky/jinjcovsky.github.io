@@ -58,15 +58,43 @@
           if (!input) return;
           input.dispatchEvent(new Event('input', { bubbles: true }));
           input.dispatchEvent(new Event('change', { bubbles: true }));
+          input.dispatchEvent(new Event('blur', { bubbles: true }));
+        }
+
+        function setCoordinateValue(input, rawValue) {
+          if (!input) return null;
+          const sourceValue = rawValue == null ? '' : String(rawValue);
+          const normalizedValue = sourceValue.replace(/,/g, '.').replace(/[^0-9.\-]/g, '');
+          const parsedValue = normalizedValue === '' ? '' : String(parseFloat(normalizedValue));
+          input.value = parsedValue;
+          input.setAttribute('value', parsedValue);
+          input.setAttribute('data-value', parsedValue);
+          if (parsedValue !== '' && typeof input.valueAsNumber === 'number') {
+            input.valueAsNumber = parseFloat(parsedValue);
+          }
+          dispatchInputEvent(input);
+          return parsedValue;
         }
 
         function normalizeCoordinateInput(input) {
-          if (!input) return;
+          if (!input) return null;
           const rawValue = input.value == null ? '' : String(input.value);
-          const normalizedValue = rawValue.replace(/,/g, '.').replace(/[^0-9.\-]/g, '');
-          if (normalizedValue !== rawValue) {
-            input.value = normalizedValue;
-            dispatchInputEvent(input);
+          return setCoordinateValue(input, rawValue);
+        }
+
+        function normalizeCoordinateFields() {
+          const { lat, lon } = getLatLonInputs();
+          if (lat) {
+            const latValue = normalizeCoordinateInput(lat);
+            if (latValue !== '' && latValue !== undefined) {
+              lat.value = latValue;
+            }
+          }
+          if (lon) {
+            const lonValue = normalizeCoordinateInput(lon);
+            if (lonValue !== '' && lonValue !== undefined) {
+              lon.value = lonValue;
+            }
           }
         }
 
@@ -232,13 +260,14 @@
           const container = lat.closest('.field') || lat.parentElement;
           if (!container || container.querySelector('.admin-helper-button[data-role="geolocate"]')) return;
 
-          [lat, lon].forEach(normalizeCoordinateInput);
-
-          lat.addEventListener('blur', function () {
-            normalizeCoordinateInput(lat);
-          });
-          lon.addEventListener('blur', function () {
-            normalizeCoordinateInput(lon);
+          [lat, lon].forEach(function (input) {
+            normalizeCoordinateInput(input);
+            input.addEventListener('input', function () {
+              normalizeCoordinateInput(input);
+            });
+            input.addEventListener('blur', function () {
+              normalizeCoordinateInput(input);
+            });
           });
 
           const wrapper = document.createElement('div');
@@ -258,10 +287,8 @@
 
             navigator.geolocation.getCurrentPosition(
               function (position) {
-                lat.value = position.coords.latitude.toFixed(6);
-                lon.value = position.coords.longitude.toFixed(6);
-                dispatchInputEvent(lat);
-                dispatchInputEvent(lon);
+                setCoordinateValue(lat, position.coords.latitude.toFixed(6));
+                setCoordinateValue(lon, position.coords.longitude.toFixed(6));
                 createStatus(container, 'Location filled from your browser.', false);
               },
               function () {
@@ -312,10 +339,8 @@
                 return;
               }
 
-              lat.value = gps.lat.toFixed(6);
-              lon.value = gps.lon.toFixed(6);
-              dispatchInputEvent(lat);
-              dispatchInputEvent(lon);
+              setCoordinateValue(lat, gps.lat.toFixed(6));
+              setCoordinateValue(lon, gps.lon.toFixed(6));
               createStatus(container, 'Location filled from the image EXIF data.', false);
             }).catch(function () {
               createStatus(container, 'EXIF parsing failed for this image.', true);
@@ -336,6 +361,10 @@
           injectGeoButton();
           injectExifButton();
         }
+
+        document.addEventListener('submit', function () {
+          normalizeCoordinateFields();
+        }, true);
 
         window.addEventListener('load', function () {
           attachHelpers();
