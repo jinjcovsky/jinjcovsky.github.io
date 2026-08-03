@@ -76,170 +76,29 @@
           return parsedValue;
         }
 
-        function readExifGps(file) {
-          return new Promise(function (resolve, reject) {
-            const reader = new FileReader();
-            reader.onload = function () {
-              const buffer = reader.result;
-              if (!buffer) {
-                reject(new Error('The image could not be read.'));
-                return;
-              }
-
-              const view = new DataView(buffer);
-              if (view.getUint8(0) !== 0xff || view.getUint8(1) !== 0xd8) {
-                resolve(null);
-                return;
-              }
-
-              let offset = 2;
-              while (offset + 1 < buffer.byteLength) {
-                const marker = view.getUint8(offset);
-                if (marker !== 0xff) break;
-                const markerType = view.getUint8(offset + 1);
-                if (markerType === 0xd9 || markerType === 0xda) break;
-
-                const segmentLength = view.getUint16(offset + 2, false);
-                if (segmentLength < 2) break;
-
-                if (markerType === 0xe1) {
-                  const segmentStart = offset + 4;
-                  const segmentEnd = Math.min(offset + 2 + segmentLength, buffer.byteLength);
-                  if (segmentStart + 6 <= segmentEnd) {
-                    const bytes = new Uint8Array(buffer.slice(segmentStart, segmentEnd));
-                    const isExif = bytes[0] === 0x45 && bytes[1] === 0x78 && bytes[2] === 0x69 && bytes[3] === 0x66 && bytes[4] === 0x00 && bytes[5] === 0x00;
-                    if (isExif) {
-                      const tiffBytes = bytes.subarray(6);
-                      const tiffView = new DataView(tiffBytes.buffer, tiffBytes.byteOffset, tiffBytes.byteLength);
-                      const littleEndian = tiffView.getUint16(0, true) === 0x4949;
-                      const signature = tiffView.getUint16(0, littleEndian ? true : false);
-                      if (signature === 0x4949 || signature === 0x4d4d) {
-                        const ifdOffset = tiffView.getUint32(4, littleEndian);
-                        const ifdEntries = getExifEntries(tiffView, ifdOffset, littleEndian);
-                        const gpsOffsetEntry = ifdEntries.find(function (entry) {
-                          return entry.tag === 0x8825;
-                        });
-
-                        if (gpsOffsetEntry) {
-                          const gpsEntries = getExifEntries(tiffView, gpsOffsetEntry.value, littleEndian);
-                          const latitudeRefEntry = gpsEntries.find(function (entry) {
-                            return entry.tag === 0x0001;
-                          });
-                          const latitudeEntry = gpsEntries.find(function (entry) {
-                            return entry.tag === 0x0002;
-                          });
-                          const longitudeRefEntry = gpsEntries.find(function (entry) {
-                            return entry.tag === 0x0003;
-                          });
-                          const longitudeEntry = gpsEntries.find(function (entry) {
-                            return entry.tag === 0x0004;
-                          });
-
-                          if (latitudeEntry && longitudeEntry && latitudeRefEntry && longitudeRefEntry) {
-                            const latitudeRef = readAsciiValue(tiffView, latitudeRefEntry);
-                            const longitudeRef = readAsciiValue(tiffView, longitudeRefEntry);
-                            const latitude = parseRationalArray(tiffView, latitudeEntry, littleEndian);
-                            const longitude = parseRationalArray(tiffView, longitudeEntry, littleEndian);
-
-                            if (latitude && longitude) {
-                              resolve({
-                                lat: convertDmsToDecimal(latitude, latitudeRef),
-                                lon: convertDmsToDecimal(longitude, longitudeRef),
-                              });
-                              return;
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-
-                offset += 2 + segmentLength;
-              }
-
-              resolve(null);
-            };
-
-            reader.onerror = function () {
-              reject(reader.error || new Error('The image could not be read.'));
-            };
-
-            reader.readAsArrayBuffer(file);
-          });
-        }
-
-        function getExifEntries(view, ifdOffset, littleEndian) {
-          if (ifdOffset < 0 || ifdOffset + 2 > view.byteLength) {
-            return [];
+        function findFieldByLabel(labelText) {
+          const labels = Array.from(document.querySelectorAll('label'));
+          for (const label of labels) {
+            if ((label.textContent || '').toLowerCase().includes(labelText)) {
+              const control = label.closest('.field') || label.parentElement;
+              const input = control && control.querySelector('input, textarea, select');
+              if (input) return input;
+            }
           }
-
-          const count = view.getUint16(ifdOffset, littleEndian);
-          const entries = [];
-          let cursor = ifdOffset + 2;
-
-          for (let index = 0; index < count; index += 1) {
-            if (cursor + 12 > view.byteLength) break;
-            entries.push({
-              tag: view.getUint16(cursor, littleEndian),
-              type: view.getUint16(cursor + 2, littleEndian),
-              count: view.getUint32(cursor + 4, littleEndian),
-              value: view.getUint32(cursor + 8, littleEndian),
-            });
-            cursor += 12;
-          }
-
-          return entries;
-        }
-
-        function parseRationalArray(view, entry, littleEndian) {
-          if (!entry || entry.count < 3) return null;
-          const values = [];
-          const startOffset = entry.value;
-          for (let index = 0; index < entry.count; index += 1) {
-            const position = startOffset + index * 8;
-            if (position + 8 > view.byteLength) return null;
-            const numerator = view.getUint32(position, littleEndian);
-            const denominator = view.getUint32(position + 4, littleEndian);
-            values.push({ numerator, denominator });
-          }
-          return values;
-        }
-
-        function readAsciiValue(view, entry) {
-          if (!entry) return '';
-          const bytes = [];
-          const startOffset = entry.value;
-          for (let index = 0; index < Math.min(entry.count, 8); index += 1) {
-            if (startOffset + index >= view.byteLength) break;
-            bytes.push(view.getUint8(startOffset + index));
-          }
-          return String.fromCharCode.apply(null, bytes).replace(/\0/g, '').trim();
-        }
-
-        function convertDmsToDecimal(dms, ref) {
-          if (!dms || dms.length < 3) return null;
-          const degrees = dms[0].numerator / dms[0].denominator;
-          const minutes = dms[1].numerator / dms[1].denominator;
-          const seconds = dms[2].numerator / dms[2].denominator;
-          const decimal = degrees + minutes / 60 + seconds / 3600;
-          return ref === 'S' || ref === 'W' ? -decimal : decimal;
+          return null;
         }
 
         function getFieldContainer(input) {
           return input.closest('.field') || input.closest('.Widget') || input.closest('.Control') || input.parentElement;
         }
 
-        function injectExifButton() {
-          const imageInput = Array.from(document.querySelectorAll('input[type="file"]')).find(function (input) {
-            return input.accept && input.accept.includes('image');
-          }) || Array.from(document.querySelectorAll('input')).find(function (input) {
-            return input.type === 'file';
-          });
+        function injectGeoButton() {
+          const latInput = findFieldByLabel('latitude') || document.querySelector('input[name="lat"], input[name="fields[lat]"], input[id*="lat"]');
+          const lonInput = findFieldByLabel('longitude') || document.querySelector('input[name="lon"], input[name="fields[lon]"], input[id*="lon"]');
 
-          if (!imageInput) return;
-          const container = getFieldContainer(imageInput);
-          if (!container || container.querySelector('.admin-helper-button[data-role="exif"]')) return;
+          if (!latInput || !lonInput) return;
+          const container = getFieldContainer(latInput);
+          if (!container || container.querySelector('.admin-helper-button[data-role="geolocate"]')) return;
 
           const wrapper = document.createElement('div');
           wrapper.className = 'admin-helper-buttons';
@@ -247,41 +106,33 @@
           const button = document.createElement('button');
           button.type = 'button';
           button.className = 'admin-helper-button';
-          button.dataset.role = 'exif';
-          button.textContent = 'Read EXIF location';
+          button.dataset.role = 'geolocate';
+          button.textContent = 'Use my location';
           button.addEventListener('click', function (event) {
             event.preventDefault();
-            const file = imageInput.files && imageInput.files[0];
-            if (!file) {
-              createStatus(container, 'Please choose an image first.', true);
+            if (!navigator.geolocation) {
+              createStatus(container, 'Geolocation is not supported by this browser.', true);
               return;
             }
 
-            createStatus(container, 'Reading image metadata…', false);
-            readExifGps(file).then(function (gps) {
-              if (!gps || gps.lat === null || gps.lon === null) {
-                createStatus(container, 'No GPS EXIF data was found in this image.', true);
-                return;
+            navigator.geolocation.getCurrentPosition(
+              function (position) {
+                setCoordinateValue(latInput, position.coords.latitude.toFixed(6));
+                setCoordinateValue(lonInput, position.coords.longitude.toFixed(6));
+                createStatus(container, 'Location filled from your browser.', false);
+              },
+              function () {
+                createStatus(container, 'Location access was denied or unavailable.', true);
               }
-
-              createStatus(container, 'GPS coordinates were read from the image metadata.', false);
-            }).catch(function () {
-              createStatus(container, 'EXIF parsing failed for this image.', true);
-            });
+            );
           });
 
           wrapper.appendChild(button);
           container.appendChild(wrapper);
-          imageInput.addEventListener('change', function () {
-            const file = imageInput.files && imageInput.files[0];
-            if (file && file.type && file.type.startsWith('image/')) {
-              createStatus(container, 'Image selected. You can read GPS data from the EXIF button.', false);
-            }
-          });
         }
 
         function attachHelpers() {
-          injectExifButton();
+          injectGeoButton();
         }
 
         window.addEventListener('load', function () {
