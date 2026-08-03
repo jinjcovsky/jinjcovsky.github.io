@@ -40,7 +40,6 @@
   </head>
   <body>
     <script src="https://unpkg.com/decap-cms@3.15.0/dist/decap-cms.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/exif-js/2.3.6/exif.min.js"></script>
     <script>
       (function () {
         function createStatus(container, message, isError) {
@@ -61,19 +60,152 @@
           input.dispatchEvent(new Event('change', { bubbles: true }));
         }
 
-        function toNumber(value) {
-          if (typeof value === 'number') return value;
-          if (value && typeof value === 'object' && 'numerator' in value && 'denominator' in value) {
-            return value.numerator / value.denominator;
+        function readExifGps(file) {
+          return new Promise(function (resolve, reject) {
+            const reader = new FileReader();
+            reader.onload = function () {
+              const buffer = reader.result;
+              if (!buffer) {
+                reject(new Error('The image could not be read.'));
+                return;
+              }
+
+              const view = new DataView(buffer);
+              if (view.getUint8(0) !== 0xff || view.getUint8(1) !== 0xd8) {
+                resolve(null);
+                return;
+              }
+
+              let offset = 2;
+              while (offset + 1 < buffer.byteLength) {
+                const marker = view.getUint8(offset);
+                if (marker !== 0xff) break;
+                const markerType = view.getUint8(offset + 1);
+                if (markerType === 0xd9 || markerType === 0xda) break;
+
+                const segmentLength = view.getUint16(offset + 2, false);
+                if (segmentLength < 2) break;
+
+                if (markerType === 0xe1) {
+                  const segmentStart = offset + 4;
+                  const segmentEnd = Math.min(offset + 2 + segmentLength, buffer.byteLength);
+                  if (segmentStart + 6 <= segmentEnd) {
+                    const bytes = new Uint8Array(buffer.slice(segmentStart, segmentEnd));
+                    const isExif = bytes[0] === 0x45 && bytes[1] === 0x78 && bytes[2] === 0x69 && bytes[3] === 0x66 && bytes[4] === 0x00 && bytes[5] === 0x00;
+                    if (isExif) {
+                      const tiffBytes = bytes.subarray(6);
+                      const tiffView = new DataView(tiffBytes.buffer, tiffBytes.byteOffset, tiffBytes.byteLength);
+                      const littleEndian = tiffView.getUint16(0, true) === 0x4949;
+                      const signature = tiffView.getUint16(0, littleEndian ? true : false);
+                      if (signature === 0x4949 || signature === 0x4d4d) {
+                        const ifdOffset = tiffView.getUint32(4, littleEndian);
+                        const ifdEntries = getExifEntries(tiffView, ifdOffset, littleEndian);
+                        const gpsOffsetEntry = ifdEntries.find(function (entry) {
+                          return entry.tag === 0x8825;
+                        });
+
+                        if (gpsOffsetEntry) {
+                          const gpsEntries = getExifEntries(tiffView, gpsOffsetEntry.value, littleEndian);
+                          const latitudeRefEntry = gpsEntries.find(function (entry) {
+                            return entry.tag === 0x0001;
+                          });
+                          const latitudeEntry = gpsEntries.find(function (entry) {
+                            return entry.tag === 0x0002;
+                          });
+                          const longitudeRefEntry = gpsEntries.find(function (entry) {
+                            return entry.tag === 0x0003;
+                          });
+                          const longitudeEntry = gpsEntries.find(function (entry) {
+                            return entry.tag === 0x0004;
+                          });
+
+                          if (latitudeEntry && longitudeEntry && latitudeRefEntry && longitudeRefEntry) {
+                            const latitudeRef = readAsciiValue(tiffView, latitudeRefEntry);
+                            const longitudeRef = readAsciiValue(tiffView, longitudeRefEntry);
+                            const latitude = parseRationalArray(tiffView, latitudeEntry, littleEndian);
+                            const longitude = parseRationalArray(tiffView, longitudeEntry, littleEndian);
+
+                            if (latitude && longitude) {
+                              resolve({
+                                lat: convertDmsToDecimal(latitude, latitudeRef),
+                                lon: convertDmsToDecimal(longitude, longitudeRef),
+                              });
+                              return;
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+
+                offset += 2 + segmentLength;
+              }
+
+              resolve(null);
+            };
+
+            reader.onerror = function () {
+              reject(reader.error || new Error('The image could not be read.'));
+            };
+
+            reader.readAsArrayBuffer(file);
+          });
+        }
+
+        function getExifEntries(view, ifdOffset, littleEndian) {
+          if (ifdOffset < 0 || ifdOffset + 2 > view.byteLength) {
+            return [];
           }
-          return Number(value);
+
+          const count = view.getUint16(ifdOffset, littleEndian);
+          const entries = [];
+          let cursor = ifdOffset + 2;
+
+          for (let index = 0; index < count; index += 1) {
+            if (cursor + 12 > view.byteLength) break;
+            entries.push({
+              tag: view.getUint16(cursor, littleEndian),
+              type: view.getUint16(cursor + 2, littleEndian),
+              count: view.getUint32(cursor + 4, littleEndian),
+              value: view.getUint32(cursor + 8, littleEndian),
+            });
+            cursor += 12;
+          }
+
+          return entries;
+        }
+
+        function parseRationalArray(view, entry, littleEndian) {
+          if (!entry || entry.count < 3) return null;
+          const values = [];
+          const startOffset = entry.value;
+          for (let index = 0; index < entry.count; index += 1) {
+            const position = startOffset + index * 8;
+            if (position + 8 > view.byteLength) return null;
+            const numerator = view.getUint32(position, littleEndian);
+            const denominator = view.getUint32(position + 4, littleEndian);
+            values.push({ numerator, denominator });
+          }
+          return values;
+        }
+
+        function readAsciiValue(view, entry) {
+          if (!entry) return '';
+          const bytes = [];
+          const startOffset = entry.value;
+          for (let index = 0; index < Math.min(entry.count, 8); index += 1) {
+            if (startOffset + index >= view.byteLength) break;
+            bytes.push(view.getUint8(startOffset + index));
+          }
+          return String.fromCharCode.apply(null, bytes).replace(/\0/g, '').trim();
         }
 
         function convertDmsToDecimal(dms, ref) {
-          if (!dms || !Array.isArray(dms) || dms.length < 3) return null;
-          const degrees = toNumber(dms[0]);
-          const minutes = toNumber(dms[1]);
-          const seconds = toNumber(dms[2]);
+          if (!dms || dms.length < 3) return null;
+          const degrees = dms[0].numerator / dms[0].denominator;
+          const minutes = dms[1].numerator / dms[1].denominator;
+          const seconds = dms[2].numerator / dms[2].denominator;
           const decimal = degrees + minutes / 60 + seconds / 3600;
           return ref === 'S' || ref === 'W' ? -decimal : decimal;
         }
@@ -148,33 +280,26 @@
               return;
             }
 
-            if (!window.EXIF || typeof window.EXIF.getData !== 'function') {
-              createStatus(container, 'EXIF support is not available right now.', true);
-              return;
-            }
-
-            window.EXIF.getData(file, function () {
-              const latitude = window.EXIF.getTag(this, 'GPSLatitude');
-              const latitudeRef = window.EXIF.getTag(this, 'GPSLatitudeRef');
-              const longitude = window.EXIF.getTag(this, 'GPSLongitude');
-              const longitudeRef = window.EXIF.getTag(this, 'GPSLongitudeRef');
-
-              if (!latitude || !longitude) {
-                createStatus(container, 'No GPS EXIF data was found in this image.', true);
-                return;
-              }
-
+            createStatus(container, 'Reading image metadata…', false);
+            readExifGps(file).then(function (gps) {
               const { lat, lon } = getLatLonInputs();
               if (!lat || !lon) {
                 createStatus(container, 'Latitude and longitude fields were not found.', true);
                 return;
               }
 
-              lat.value = convertDmsToDecimal(latitude, latitudeRef).toFixed(6);
-              lon.value = convertDmsToDecimal(longitude, longitudeRef).toFixed(6);
+              if (!gps || gps.lat === null || gps.lon === null) {
+                createStatus(container, 'No GPS EXIF data was found in this image.', true);
+                return;
+              }
+
+              lat.value = gps.lat.toFixed(6);
+              lon.value = gps.lon.toFixed(6);
               dispatchInputEvent(lat);
               dispatchInputEvent(lon);
               createStatus(container, 'Location filled from the image EXIF data.', false);
+            }).catch(function () {
+              createStatus(container, 'EXIF parsing failed for this image.', true);
             });
           });
 
@@ -193,9 +318,17 @@
           injectExifButton();
         }
 
-        window.addEventListener('load', attachHelpers);
-        const observer = new MutationObserver(attachHelpers);
-        observer.observe(document.body, { childList: true, subtree: true });
+        window.addEventListener('load', function () {
+          attachHelpers();
+          let attempts = 0;
+          const retry = window.setInterval(function () {
+            attempts += 1;
+            attachHelpers();
+            if (attempts >= 10) {
+              window.clearInterval(retry);
+            }
+          }, 400);
+        });
       })();
     </script>
   </body>
