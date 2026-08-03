@@ -248,16 +248,40 @@
           return ref === 'S' || ref === 'W' ? -decimal : decimal;
         }
 
+        function getTextContent(node) {
+          return (node && node.textContent ? node.textContent : '').toLowerCase();
+        }
+
+        function findInputByKeywords(keywords, skipInput) {
+          const candidates = Array.from(document.querySelectorAll('input, textarea, select'));
+          for (const candidate of candidates) {
+            if (candidate === skipInput) continue;
+            const candidateText = getTextContent(candidate.closest('.field') || candidate.closest('.Widget') || candidate.parentElement);
+            const candidateName = (candidate.name || candidate.id || candidate.getAttribute('aria-label') || '').toLowerCase();
+            const matches = keywords.some(function (keyword) {
+              return candidateName.includes(keyword) || candidateText.includes(keyword);
+            });
+            if (matches) {
+              return candidate;
+            }
+          }
+          return null;
+        }
+
+        function getFieldContainer(input) {
+          return input.closest('.field') || input.closest('.Widget') || input.closest('.Control') || input.parentElement;
+        }
+
         function getLatLonInputs() {
-          const lat = document.querySelector('input[name="lat"], input[name="fields[lat]"], input[id*="lat"]');
-          const lon = document.querySelector('input[name="lon"], input[name="fields[lon]"], input[id*="lon"]');
+          const lat = findInputByKeywords(['lat', 'latitude']) || document.querySelector('input[name="lat"], input[name="fields[lat]"], input[id*="lat"]');
+          const lon = findInputByKeywords(['lon', 'longitude'], lat) || document.querySelector('input[name="lon"], input[name="fields[lon]"], input[id*="lon"]');
           return { lat, lon };
         }
 
         function injectGeoButton() {
           const { lat, lon } = getLatLonInputs();
           if (!lat || !lon) return;
-          const container = lat.closest('.field') || lat.parentElement;
+          const container = getFieldContainer(lat);
           if (!container || container.querySelector('.admin-helper-button[data-role="geolocate"]')) return;
 
           [lat, lon].forEach(function (input) {
@@ -304,10 +328,12 @@
         function injectExifButton() {
           const imageInput = Array.from(document.querySelectorAll('input[type="file"]')).find(function (input) {
             return input.accept && input.accept.includes('image');
+          }) || Array.from(document.querySelectorAll('input')).find(function (input) {
+            return input.type === 'file';
           });
 
           if (!imageInput) return;
-          const container = imageInput.closest('.field') || imageInput.parentElement;
+          const container = getFieldContainer(imageInput);
           if (!container || container.querySelector('.admin-helper-button[data-role="exif"]')) return;
 
           const wrapper = document.createElement('div');
