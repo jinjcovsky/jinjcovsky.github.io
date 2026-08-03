@@ -76,28 +76,6 @@
           return parsedValue;
         }
 
-        function normalizeCoordinateInput(input) {
-          if (!input) return null;
-          const rawValue = input.value == null ? '' : String(input.value);
-          return setCoordinateValue(input, rawValue);
-        }
-
-        function normalizeCoordinateFields() {
-          const { lat, lon } = getLatLonInputs();
-          if (lat) {
-            const latValue = normalizeCoordinateInput(lat);
-            if (latValue !== '' && latValue !== undefined) {
-              lat.value = latValue;
-            }
-          }
-          if (lon) {
-            const lonValue = normalizeCoordinateInput(lon);
-            if (lonValue !== '' && lonValue !== undefined) {
-              lon.value = lonValue;
-            }
-          }
-        }
-
         function readExifGps(file) {
           return new Promise(function (resolve, reject) {
             const reader = new FileReader();
@@ -248,81 +226,8 @@
           return ref === 'S' || ref === 'W' ? -decimal : decimal;
         }
 
-        function getTextContent(node) {
-          return (node && node.textContent ? node.textContent : '').toLowerCase();
-        }
-
-        function findInputByKeywords(keywords, skipInput) {
-          const candidates = Array.from(document.querySelectorAll('input, textarea, select'));
-          for (const candidate of candidates) {
-            if (candidate === skipInput) continue;
-            const candidateText = getTextContent(candidate.closest('.field') || candidate.closest('.Widget') || candidate.parentElement);
-            const candidateName = (candidate.name || candidate.id || candidate.getAttribute('aria-label') || '').toLowerCase();
-            const matches = keywords.some(function (keyword) {
-              return candidateName.includes(keyword) || candidateText.includes(keyword);
-            });
-            if (matches) {
-              return candidate;
-            }
-          }
-          return null;
-        }
-
         function getFieldContainer(input) {
           return input.closest('.field') || input.closest('.Widget') || input.closest('.Control') || input.parentElement;
-        }
-
-        function getLatLonInputs() {
-          const lat = findInputByKeywords(['lat', 'latitude']) || document.querySelector('input[name="lat"], input[name="fields[lat]"], input[id*="lat"]');
-          const lon = findInputByKeywords(['lon', 'longitude'], lat) || document.querySelector('input[name="lon"], input[name="fields[lon]"], input[id*="lon"]');
-          return { lat, lon };
-        }
-
-        function injectGeoButton() {
-          const { lat, lon } = getLatLonInputs();
-          if (!lat || !lon) return;
-          const container = getFieldContainer(lat);
-          if (!container || container.querySelector('.admin-helper-button[data-role="geolocate"]')) return;
-
-          [lat, lon].forEach(function (input) {
-            normalizeCoordinateInput(input);
-            input.addEventListener('input', function () {
-              normalizeCoordinateInput(input);
-            });
-            input.addEventListener('blur', function () {
-              normalizeCoordinateInput(input);
-            });
-          });
-
-          const wrapper = document.createElement('div');
-          wrapper.className = 'admin-helper-buttons';
-
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.className = 'admin-helper-button';
-          button.dataset.role = 'geolocate';
-          button.textContent = 'Use my location';
-          button.addEventListener('click', function (event) {
-            event.preventDefault();
-            if (!navigator.geolocation) {
-              createStatus(container, 'Geolocation is not supported by this browser.', true);
-              return;
-            }
-
-            navigator.geolocation.getCurrentPosition(
-              function (position) {
-                setCoordinateValue(lat, position.coords.latitude.toFixed(6));
-                setCoordinateValue(lon, position.coords.longitude.toFixed(6));
-                createStatus(container, 'Location filled from your browser.', false);
-              },
-              function () {
-                createStatus(container, 'Location access was denied or unavailable.', true);
-              }
-            );
-          });
-
-          wrapper.appendChild(button);
-          container.appendChild(wrapper);
         }
 
         function injectExifButton() {
@@ -354,20 +259,12 @@
 
             createStatus(container, 'Reading image metadata…', false);
             readExifGps(file).then(function (gps) {
-              const { lat, lon } = getLatLonInputs();
-              if (!lat || !lon) {
-                createStatus(container, 'Latitude and longitude fields were not found.', true);
-                return;
-              }
-
               if (!gps || gps.lat === null || gps.lon === null) {
                 createStatus(container, 'No GPS EXIF data was found in this image.', true);
                 return;
               }
 
-              setCoordinateValue(lat, gps.lat.toFixed(6));
-              setCoordinateValue(lon, gps.lon.toFixed(6));
-              createStatus(container, 'Location filled from the image EXIF data.', false);
+              createStatus(container, 'GPS coordinates were read from the image metadata.', false);
             }).catch(function () {
               createStatus(container, 'EXIF parsing failed for this image.', true);
             });
@@ -384,13 +281,8 @@
         }
 
         function attachHelpers() {
-          injectGeoButton();
           injectExifButton();
         }
-
-        document.addEventListener('submit', function () {
-          normalizeCoordinateFields();
-        }, true);
 
         window.addEventListener('load', function () {
           attachHelpers();
