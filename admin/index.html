@@ -60,6 +60,16 @@
           input.dispatchEvent(new Event('change', { bubbles: true }));
         }
 
+        function normalizeCoordinateInput(input) {
+          if (!input) return;
+          const rawValue = input.value == null ? '' : String(input.value);
+          const normalizedValue = rawValue.replace(/,/g, '.').replace(/[^0-9.\-]/g, '');
+          if (normalizedValue !== rawValue) {
+            input.value = normalizedValue;
+            dispatchInputEvent(input);
+          }
+        }
+
         function readExifGps(file) {
           return new Promise(function (resolve, reject) {
             const reader = new FileReader();
@@ -221,6 +231,15 @@
           if (!lat || !lon) return;
           const container = lat.closest('.field') || lat.parentElement;
           if (!container || container.querySelector('.admin-helper-button[data-role="geolocate"]')) return;
+
+          [lat, lon].forEach(normalizeCoordinateInput);
+
+          lat.addEventListener('blur', function () {
+            normalizeCoordinateInput(lat);
+          });
+          lon.addEventListener('blur', function () {
+            normalizeCoordinateInput(lon);
+          });
 
           const wrapper = document.createElement('div');
           wrapper.className = 'admin-helper-buttons';
