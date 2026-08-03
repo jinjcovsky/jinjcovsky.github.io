@@ -5,9 +5,198 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Blog Admin Dashboard</title>
     <meta name="robots" content="noindex, nofollow" />
+    <style>
+      .admin-helper-buttons {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-top: 0.5rem;
+      }
+
+      .admin-helper-button {
+        border: 1px solid #cbd5e1;
+        background: #f8fafc;
+        color: #0f172a;
+        border-radius: 0.375rem;
+        padding: 0.4rem 0.7rem;
+        cursor: pointer;
+        font-size: 0.9rem;
+      }
+
+      .admin-helper-button:hover {
+        background: #e2e8f0;
+      }
+
+      .admin-helper-status {
+        margin-top: 0.35rem;
+        font-size: 0.9rem;
+        color: #475569;
+      }
+
+      .admin-helper-status.error {
+        color: #b91c1c;
+      }
+    </style>
   </head>
   <body>
-    <!-- Decap CMS script -->
     <script src="https://unpkg.com/decap-cms@3.15.0/dist/decap-cms.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exif-js/2.3.6/exif.min.js"></script>
+    <script>
+      (function () {
+        function createStatus(container, message, isError) {
+          let status = container.querySelector('.admin-helper-status');
+          if (!status) {
+            status = document.createElement('div');
+            status.className = 'admin-helper-status';
+            container.appendChild(status);
+          }
+          status.textContent = message;
+          status.classList.toggle('error', Boolean(isError));
+          return status;
+        }
+
+        function dispatchInputEvent(input) {
+          if (!input) return;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        function toNumber(value) {
+          if (typeof value === 'number') return value;
+          if (value && typeof value === 'object' && 'numerator' in value && 'denominator' in value) {
+            return value.numerator / value.denominator;
+          }
+          return Number(value);
+        }
+
+        function convertDmsToDecimal(dms, ref) {
+          if (!dms || !Array.isArray(dms) || dms.length < 3) return null;
+          const degrees = toNumber(dms[0]);
+          const minutes = toNumber(dms[1]);
+          const seconds = toNumber(dms[2]);
+          const decimal = degrees + minutes / 60 + seconds / 3600;
+          return ref === 'S' || ref === 'W' ? -decimal : decimal;
+        }
+
+        function getLatLonInputs() {
+          const lat = document.querySelector('input[name="lat"], input[name="fields[lat]"], input[id*="lat"]');
+          const lon = document.querySelector('input[name="lon"], input[name="fields[lon]"], input[id*="lon"]');
+          return { lat, lon };
+        }
+
+        function injectGeoButton() {
+          const { lat, lon } = getLatLonInputs();
+          if (!lat || !lon) return;
+          const container = lat.closest('.field') || lat.parentElement;
+          if (!container || container.querySelector('.admin-helper-button[data-role="geolocate"]')) return;
+
+          const wrapper = document.createElement('div');
+          wrapper.className = 'admin-helper-buttons';
+
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'admin-helper-button';
+          button.dataset.role = 'geolocate';
+          button.textContent = 'Use my location';
+          button.addEventListener('click', function (event) {
+            event.preventDefault();
+            if (!navigator.geolocation) {
+              createStatus(container, 'Geolocation is not supported by this browser.', true);
+              return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+              function (position) {
+                lat.value = position.coords.latitude.toFixed(6);
+                lon.value = position.coords.longitude.toFixed(6);
+                dispatchInputEvent(lat);
+                dispatchInputEvent(lon);
+                createStatus(container, 'Location filled from your browser.', false);
+              },
+              function () {
+                createStatus(container, 'Location access was denied or unavailable.', true);
+              }
+            );
+          });
+
+          wrapper.appendChild(button);
+          container.appendChild(wrapper);
+        }
+
+        function injectExifButton() {
+          const imageInput = Array.from(document.querySelectorAll('input[type="file"]')).find(function (input) {
+            return input.accept && input.accept.includes('image');
+          });
+
+          if (!imageInput) return;
+          const container = imageInput.closest('.field') || imageInput.parentElement;
+          if (!container || container.querySelector('.admin-helper-button[data-role="exif"]')) return;
+
+          const wrapper = document.createElement('div');
+          wrapper.className = 'admin-helper-buttons';
+
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'admin-helper-button';
+          button.dataset.role = 'exif';
+          button.textContent = 'Read EXIF location';
+          button.addEventListener('click', function (event) {
+            event.preventDefault();
+            const file = imageInput.files && imageInput.files[0];
+            if (!file) {
+              createStatus(container, 'Please choose an image first.', true);
+              return;
+            }
+
+            if (!window.EXIF || typeof window.EXIF.getData !== 'function') {
+              createStatus(container, 'EXIF support is not available right now.', true);
+              return;
+            }
+
+            window.EXIF.getData(file, function () {
+              const latitude = window.EXIF.getTag(this, 'GPSLatitude');
+              const latitudeRef = window.EXIF.getTag(this, 'GPSLatitudeRef');
+              const longitude = window.EXIF.getTag(this, 'GPSLongitude');
+              const longitudeRef = window.EXIF.getTag(this, 'GPSLongitudeRef');
+
+              if (!latitude || !longitude) {
+                createStatus(container, 'No GPS EXIF data was found in this image.', true);
+                return;
+              }
+
+              const { lat, lon } = getLatLonInputs();
+              if (!lat || !lon) {
+                createStatus(container, 'Latitude and longitude fields were not found.', true);
+                return;
+              }
+
+              lat.value = convertDmsToDecimal(latitude, latitudeRef).toFixed(6);
+              lon.value = convertDmsToDecimal(longitude, longitudeRef).toFixed(6);
+              dispatchInputEvent(lat);
+              dispatchInputEvent(lon);
+              createStatus(container, 'Location filled from the image EXIF data.', false);
+            });
+          });
+
+          wrapper.appendChild(button);
+          container.appendChild(wrapper);
+          imageInput.addEventListener('change', function () {
+            const file = imageInput.files && imageInput.files[0];
+            if (file && file.type && file.type.startsWith('image/')) {
+              createStatus(container, 'Image selected. You can read GPS data from the EXIF button.', false);
+            }
+          });
+        }
+
+        function attachHelpers() {
+          injectGeoButton();
+          injectExifButton();
+        }
+
+        window.addEventListener('load', attachHelpers);
+        const observer = new MutationObserver(attachHelpers);
+        observer.observe(document.body, { childList: true, subtree: true });
+      })();
+    </script>
   </body>
 </html>
