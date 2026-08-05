@@ -6,5 +6,5 @@ image: /assets/uploads/1000082002.jpg
 coords: 47.12778,8.59253
 ---
 Yumyum
-
+![päcklesuppe am see](/assets/uploads/1000082002.jpg)
 kurz gedacht es wird seeehr nass aber bin trocken geblieben
